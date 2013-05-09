@@ -17,4 +17,4 @@ $(BIN):	$(OBJS)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:
-	rm -rf $(OBJS) $(BIN)
+	rm -rf $(OBJS) $(BIN) $(wildcard *.out)
