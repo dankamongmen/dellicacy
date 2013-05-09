@@ -33,7 +33,8 @@ suckle_server_teat(int teat){
 		exit(EXIT_FAILURE);
 	}
 	while(read(teat,in,sizeof(in)) == sizeof(in)){
-		fprintf(stderr,"%ju %ju flipp\n",in[0],in[1]);
+		fprintf(out,"%ju %ju = ",in[0],in[1]);
+		fprintf(out,"%ju\n",in[0] - in[1]);
 	}
 	if(fclose(out)){
 		fprintf(stderr,"Error closing %s (%s?)\n",fn,strerror(errno));
@@ -96,6 +97,7 @@ feed_hungry_children(int rnd,unsigned mouths,const int *pipes,
 				return -1;
 			}
 		}
+		printf("Transmitted %llu msgs/child\n",rate);
 		do{
 			struct timeval now,diff;
 
