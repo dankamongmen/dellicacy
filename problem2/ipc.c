@@ -19,10 +19,9 @@ static void
 suckle_server_teat(void){
 }
 
+// 
 static int
-feed_hungry_children(unsigned mouths,const int *pipes){
-	for(;;)
-		;
+feed_hungry_children(unsigned mouths,const int *pipes,unsigned long long rate){
 	return 0;
 }
 
@@ -106,7 +105,7 @@ int main(int argc,char **argv){
 	if(spawn_hungry_children(mouths,&pipes)){
 		return EXIT_FAILURE;
 	}
-	if(feed_hungry_children(mouths,pipes)){
+	if(feed_hungry_children(mouths,pipes,rate)){
 		free(pipes);
 		return EXIT_FAILURE;
 	}
