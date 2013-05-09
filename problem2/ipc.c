@@ -1,4 +1,5 @@
 #include <time.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <errno.h>
 #include <limits.h>
@@ -16,30 +17,55 @@ usage(void){
 	fprintf(stderr,"usage: ipc [ -r maxrate/sec ]\n");
 }
 
-// Child routine. We read messages from the pipe, 
+// Child routine. We read messages from the pipe. Each message is a pair of
+// unsigned 64-bit integers, of which we must find the greatest common divisor.
 static void
-suckle_server_teat(void){
-	char buf[80];
+suckle_server_teat(int teat){
+	char fn[PATH_MAX];
+	uint64_t in[2];
+	FILE *out;
 
-	while(fgets(buf,sizeof(buf),stdin)){
-
+	if(snprintf(fn,sizeof(fn),"%jd.out",(intmax_t)getpid()) >= sizeof(fn)){
+		exit(EXIT_FAILURE);
+	}
+	if((out = fopen(fn,"w")) == NULL){
+		fprintf(stderr,"Couldn't open %s (%s?)\n",fn,strerror(errno));
+		exit(EXIT_FAILURE);
+	}
+	while(read(teat,in,sizeof(in)) == sizeof(in)){
+		fprintf(stderr,"%ju %ju flipp\n",in[0],in[1]);
+	}
+	if(fclose(out)){
+		fprintf(stderr,"Error closing %s (%s?)\n",fn,strerror(errno));
+		exit(EXIT_FAILURE);
 	}
 	exit(EXIT_FAILURE);
 }
 
 // Send one message to each child
 static int
-send_msgs(unsigned mouths,const int *pipes){
-	printf("sending %u!\n",mouths);
+send_msgs(int rnd,unsigned mouths,const int *pipes){
+	uint64_t buf[2 * mouths];
+
+	if(read(rnd,buf,sizeof(buf)) != sizeof(buf)){
+		fprintf(stderr,"Error reading %zu PRNG bytes\n",sizeof(buf));
+		return -1;
+	}
+	while(mouths--){
+		if(write(pipes[mouths],buf + mouths * 2,sizeof(*buf) * 2) != sizeof(*buf) * 2){
+			fprintf(stderr,"Error writing %zu to fd %d\n",
+					sizeof(*buf) * 2,pipes[mouths]);
+			return -1;
+		}
+	}
 	return 0;
 }
 
 // Send messages to the children as quickly as possible.
 static int
-forcefeed_hungry_children(unsigned mouths,const int *pipes){
-	printf("ayup\n");
+forcefeed_hungry_children(int rnd,unsigned mouths,const int *pipes){
 	while(1){
-		if(send_msgs(mouths,pipes)){
+		if(send_msgs(rnd,mouths,pipes)){
 			return -1;
 		}
 	}
@@ -48,11 +74,12 @@ forcefeed_hungry_children(unsigned mouths,const int *pipes){
 // Send messages to the children, no faster than the specified ratelimit (0
 // for no limit) expressed in msgs/sec/pipe.
 static int
-feed_hungry_children(unsigned mouths,const int *pipes,unsigned long long rate){
+feed_hungry_children(int rnd,unsigned mouths,const int *pipes,
+				unsigned long long rate){
 	unsigned long long bkt;
 
 	if(rate == 0){
-		return forcefeed_hungry_children(mouths,pipes);
+		return forcefeed_hungry_children(rnd,mouths,pipes);
 	}
 	while(1){
 		struct timeval then;
@@ -65,7 +92,7 @@ feed_hungry_children(unsigned mouths,const int *pipes,unsigned long long rate){
 		gettimeofday(&then,NULL);
 		bkt = rate;
 		while(bkt--){
-			if(send_msgs(mouths,pipes)){
+			if(send_msgs(rnd,mouths,pipes)){
 				return -1;
 			}
 		}
@@ -120,11 +147,7 @@ spawn_hungry_children(unsigned mouths,int **pipes){
 			close(pfd[0]);
 		}else{
 			close(pfd[1]);
-			if(pfd[0] != STDIN_FILENO){
-				dup2(pfd[0],STDIN_FILENO);
-				close(pfd[0]);
-			}
-			suckle_server_teat();
+			suckle_server_teat(pfd[0]);
 			exit(EXIT_SUCCESS);
 		}
 	}
@@ -137,7 +160,7 @@ spawn_hungry_children(unsigned mouths,int **pipes){
 int main(int argc,char **argv){
 	unsigned mouths = CHILDCOUNT;
 	unsigned long long rate = 0; // per second; 0 = unlimited
-	int c,*pipes;
+	int c,*pipes,rnd;
 
 	while((c = getopt(argc,argv,"r:")) != -1){
 		switch(c){
@@ -172,10 +195,17 @@ int main(int argc,char **argv){
 	if(spawn_hungry_children(mouths,&pipes)){
 		return EXIT_FAILURE;
 	}
-	if(feed_hungry_children(mouths,pipes,rate)){
+	if((rnd = open("/dev/urandom",O_RDONLY)) < 0){
+		fprintf(stderr,"Coudln't open /dev/urandom for input (%s?)\n",
+				strerror(errno));
+		return -1;
+	}
+	if(feed_hungry_children(rnd,mouths,pipes,rate)){
+		close(rnd);
 		free(pipes);
 		return EXIT_FAILURE;
 	}
+	close(rnd);
 	free(pipes);
 	return EXIT_SUCCESS;
 }
