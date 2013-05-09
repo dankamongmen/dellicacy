@@ -33,8 +33,20 @@ suckle_server_teat(int teat){
 		exit(EXIT_FAILURE);
 	}
 	while(read(teat,in,sizeof(in)) == sizeof(in)){
-		fprintf(out,"%ju %ju = ",in[0],in[1]);
-		fprintf(out,"%ju\n",in[0] - in[1]);
+		uint64_t a = in[0],b = in[1];
+
+		if(b > a){
+			b ^= a ^= b;
+		}
+		fprintf(out,"gcd(%ju,%ju) = ",a,b);
+		while(b){
+			uint64_t m = a % b;
+
+			a = b;
+			b = m;
+		}
+		fprintf(out,"%ju\n",a);
+		fflush(out);
 	}
 	if(fclose(out)){
 		fprintf(stderr,"Error closing %s (%s?)\n",fn,strerror(errno));
