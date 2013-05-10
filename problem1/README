@@ -1,0 +1,61 @@
+Problem 1 -- Nick Black
+
+As it turns out, the capability requested already exists in the Linux kernel,
+using precisely the data structures and algorithms I would have used to solve
+this problem: bitmask-backed LC-tries (Level Compressed tries) with hashing,
+yielding the TRASH algorithm:
+
+ http://www.nada.kth.se/~snilsson/publications/TRASH/trash.pdf
+
+For more information regarding LC-tries, consult:
+
+ "Networking Algorithmics", Varghese
+ "High Performance Switches and Routers", Chao and Liu
+ "Improving and Analyzing LC-Tries for Address Lookup", Fu
+ Documentation/networking/fib_trie.txt in the Linux kernel
+
+Also useful is:
+
+ "Towards a Billion Router Lookups per Second in Software", Zec
+
+The solution builds atop the "ipset" functionality of Netfilter:
+
+ http://ipset.netfilter.org/
+
+An ipset is created using "ipset create". To support millions of addresses,
+use the "maxelem" parameter to increase the number of ranges from its default
+of 64K. Alternatively, use multiple ipset objects. Examples for doing so with
+the "Bluetack Level I" list can be found here:
+
+ http://dustinhatch.tumblr.com/post/33821945832/using-peerblock-lists-on-linux
+
+I've verified with the CentOS 5.9 kernel that such an ipset can be created
+and matched against with trivial system impact. About 20M of (unswappable)
+kernel memory appeared to be consumed by ipset creation. This is more than we
+would expect from a basic LC-Trie implementation; looking at /proc/slabinfo,
+we see that most of the allocations have been made from the (magazined) SLAB
+caches, and assume that the large backing allocations are responsible for the
+increased overhead.
+
+To perform the requested filtering and logging, we create one ipset per action
+(DROP and LOG). All IPs to be DROPped go into the DROP ipset. All IPs to be
+LOG+ALLOWed go into the LOG ipset. All IPs to be LOG+DROPped go into both
+ipsets. This is the one area where an improvement could have been made over
+the native Linux implementation: we could have used a single ipset, and stored
+the policy with the end nodes. This would allow a single pass through the
+ipset. Given that the performance impact of the sets and rules is negligible,
+this seemed like a pointless optimization, especially as it would require new
+userspace extensions. The solution as described requires no changes to the
+userspace ipset and iptables tools.
+
+Finally, we add two iptables rules:
+
+	iptables -I INPUT -m set --match-set LOGSET src -j LOG
+	iptables -I INPUT -m set --match-set DROPSET src -j DROP
+
+and we're done.
+
+Time and space complexity: The LC-Trie is well known to have average expected
+lookup depth of $\theta(\log\log n)$, though note that TRASH is expected to cut
+the constant factor by half, especially for /32-dense tables such as we expect
+in our IP list. 
